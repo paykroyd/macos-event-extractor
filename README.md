@@ -186,10 +186,12 @@ Conference call with client next Monday at 3 PM - discuss project proposal.
 ### Extracted Events
 
 The system will create calendar events with:
-- **Titles**: "Dentist Appointment", "Team Meeting", "Birthday Party", "Conference Call with Client"
-- **Dates & Times**: Properly parsed relative dates and times
-- **Locations**: "Conference Room", "John's House" (when mentioned)
-- **Descriptions**: Additional context from the original text
+| Title | Date | Location | Description |
+|-------|------|----------|-------------|
+| Dentist Appointment | Tomorrow at 2:30 PM | | Routine dental checkup |
+| Team Meeting | Friday at 10 AM | Conference Room | Weekly team sync |
+| Birthday Party | Saturday at 7 PM | John's House | Celebration event |
+| Conference Call with Client | Next Monday at 3 PM | | Discuss project proposal |
 
 ## Troubleshooting
 
