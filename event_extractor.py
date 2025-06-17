@@ -170,6 +170,13 @@ Rules:
 4. Be conservative - only extract clear, actionable events
 5. If relative dates are used (e.g., "tomorrow", "next Monday"), calculate the actual date
 6. Return only valid JSON - no additional text or explanations
+7. Description should include important details such as:
+    - Confirmation Codes
+    - Agenda
+    - Instructions for finding the event location
+    - Contact information for event organizers
+    - Relevant URLs such as zoom links or other relevant resources
+8. For flights, consider time zones.
 
 Example output format:
 [
