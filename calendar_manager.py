@@ -10,10 +10,23 @@ import objc
 from Foundation import NSDate, NSTimeZone, NSCalendar, NSDateComponents
 from EventKit import (
     EKEventStore, EKEvent, EKAlarm, EKRecurrenceRule,
-    EKAuthorizationStatusAuthorized, EKAuthorizationStatusDenied,
-    EKAuthorizationStatusRestricted, EKAuthorizationStatusNotDetermined,
     EKEntityTypeEvent
 )
+
+# Try to import authorization status constants (may not exist in newer versions)
+try:
+    from EventKit import (
+        EKAuthorizationStatusAuthorized, EKAuthorizationStatusDenied,
+        EKAuthorizationStatusRestricted, EKAuthorizationStatusNotDetermined
+    )
+    HAS_OLD_AUTH_API = True
+except ImportError:
+    # For newer macOS versions, these constants may not be available
+    HAS_OLD_AUTH_API = False
+    EKAuthorizationStatusAuthorized = 3
+    EKAuthorizationStatusDenied = 2
+    EKAuthorizationStatusRestricted = 1
+    EKAuthorizationStatusNotDetermined = 0
 
 
 class CalendarManager:
@@ -28,6 +41,60 @@ class CalendarManager:
 
     def request_calendar_access(self) -> bool:
         """Request access to calendar and return authorization status."""
+        try:
+            # Check if we have the new API (macOS 14+)
+            if hasattr(self.event_store, 'requestFullAccessToEventsWithCompletion_'):
+                self.logger.info("Using new EventKit API for calendar access")
+                return self._request_access_new_api()
+
+            # Check if we have the old authorization status method
+            elif hasattr(self.event_store, 'authorizationStatusForEntityType_'):
+                self.logger.info("Using legacy EventKit API for calendar access")
+                return self._request_access_old_api()
+
+            else:
+                # Try the newer requestAccessToEntityType method
+                self.logger.info("Using intermediate EventKit API for calendar access")
+                return self._request_access_sync()
+
+        except Exception as e:
+            self.logger.error(f"Error requesting calendar access: {e}")
+            self._authorization_status = False
+            return False
+
+    def _request_access_new_api(self) -> bool:
+        """Request access using the new API (macOS 14+)."""
+        import threading
+        import time
+
+        result = [None]
+        event = threading.Event()
+
+        def completion_handler(granted, error):
+            result[0] = granted and not error
+            if error:
+                self.logger.error(f"Calendar access request error: {error}")
+            event.set()
+
+        # Use the new full access API
+        self.event_store.requestFullAccessToEventsWithCompletion_(completion_handler)
+
+        # Wait for response (with timeout)
+        if event.wait(timeout=15.0):
+            success = result[0] or False
+            self._authorization_status = success
+            if success:
+                self.logger.info("Calendar access granted")
+            else:
+                self.logger.error("Calendar access denied")
+            return success
+        else:
+            self.logger.error("Calendar access request timed out")
+            self._authorization_status = False
+            return False
+
+    def _request_access_old_api(self) -> bool:
+        """Request access using the old API (macOS 13 and earlier)."""
         try:
             # Check current authorization status
             status = self.event_store.authorizationStatusForEntityType_(EKEntityTypeEvent)
@@ -54,12 +121,11 @@ class CalendarManager:
             return False
 
         except Exception as e:
-            self.logger.error(f"Error requesting calendar access: {e}")
-            self._authorization_status = False
-            return False
+            self.logger.error(f"Error with old calendar API: {e}")
+            return self._request_access_sync()
 
     def _request_access_sync(self) -> bool:
-        """Request calendar access synchronously."""
+        """Request calendar access synchronously using intermediate API."""
         import threading
         import time
 
@@ -72,16 +138,42 @@ class CalendarManager:
                 self.logger.error(f"Calendar access request error: {error}")
             event.set()
 
-        # Request access
-        self.event_store.requestAccessToEntityType_completion_(
-            EKEntityTypeEvent, completion_handler
-        )
+        try:
+            # Try the requestAccessToEntityType method
+            if hasattr(self.event_store, 'requestAccessToEntityType_completion_'):
+                self.event_store.requestAccessToEntityType_completion_(
+                    EKEntityTypeEvent, completion_handler
+                )
+            else:
+                # Last resort: assume we have access and test it
+                self.logger.warning("No recognized authorization method found, testing access directly")
+                try:
+                    # Try to access calendars to test permission
+                    calendars = self.event_store.calendarsForEntityType_(EKEntityTypeEvent)
+                    result[0] = calendars is not None and len(calendars) >= 0
+                    event.set()
+                except Exception as e:
+                    self.logger.error(f"Direct calendar access test failed: {e}")
+                    result[0] = False
+                    event.set()
 
-        # Wait for response (with timeout)
-        if event.wait(timeout=10.0):
-            return result[0] or False
-        else:
-            self.logger.error("Calendar access request timed out")
+            # Wait for response (with timeout)
+            if event.wait(timeout=15.0):
+                success = result[0] or False
+                self._authorization_status = success
+                if success:
+                    self.logger.info("Calendar access granted")
+                else:
+                    self.logger.error("Calendar access denied")
+                return success
+            else:
+                self.logger.error("Calendar access request timed out")
+                self._authorization_status = False
+                return False
+
+        except Exception as e:
+            self.logger.error(f"Error in sync access request: {e}")
+            self._authorization_status = False
             return False
 
     def get_calendars(self) -> List[Dict[str, Any]]:
