@@ -146,9 +146,11 @@ class EventExtractorApp:
     def _show_notification(self, message: str, title: str = "Event Extractor"):
         """Show macOS notification."""
         try:
-            script = f'''
-            display notification "{message}" with title "{title}"
-            '''
+            # Escape quotes in message and title
+            safe_message = message.replace('"', '\\"')
+            safe_title = title.replace('"', '\\"')
+
+            script = f'tell application "System Events" to display notification "{safe_message}" with title "{safe_title}"'
             subprocess.run(['osascript', '-e', script], check=True)
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error showing notification: {e}")
